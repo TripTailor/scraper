@@ -1,19 +1,19 @@
 package co.triptailor.hostels.cities
 
-import co.triptailor.hostels.Scraper
-import co.triptailor.hostels.AppConfig
 import java.io.FileWriter
 import java.io.BufferedWriter
 import org.jsoup.nodes.Element
 import scala.collection.JavaConverters._
 import java.io.BufferedReader
 import java.io.FileReader
+import co.triptailor.hostels.configuration.AppConfig
+import co.triptailor.hostels.scraper.Scraper
 
 /**
  * @author lgaleana
  */
 object CitiesScraper extends Scraper {
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String]) = {
     scrape(AppConfig.JSoup.citiesUrl)
   }
   
@@ -54,7 +54,7 @@ object CitiesScraper extends Scraper {
       scrapeContinent(continent, countryElements, writer, (i, countryOffset, stateOffset, cityOffset))
       
       val offsetWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
-      offsetWriter.write((i + 1) + "0,0,0")
+      offsetWriter.write((i + 1) + ",0,0,0")
       offsetWriter.close
     }
     writer.close

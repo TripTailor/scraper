@@ -1,4 +1,4 @@
-package co.triptailor.hostels
+package co.triptailor.hostels.configuration
 
 /**
  * @author lgaleana
@@ -14,11 +14,12 @@ object AppConfig {
   
   object JSoup {
     lazy val citiesUrl = "http://www.hostelworld.com/hostels"
-    lazy val continents = Seq()
   }
   
   object Data {
     lazy val citiesFile = "cities.txt"
     lazy val lastCity = "last_city.txt"
+    lazy val data = "data/"
+    lazy val lastHostel = "data/last.txt"
   }
 }
