@@ -56,17 +56,19 @@ object HostelsScraper extends Scraper {
     val hostelBoxes = doc.select(".fabdetails").asScala
     val hostelUrls = hostelBoxes.map(_.select("a").get(0).attr("href").split("\\?")(0))
     
-    val currentFirstId = getHostelWorldId(hostelUrls(0))
-    
-    if(currentFirstId != firstId) {
-      val urlsZip = hostelUrls.drop(offset._2 % AppConfig.JSoup.hostelsOffset).zipWithIndex
-      for(urlIndex <- urlsZip) {
-        val reviewOffset = if(urlIndex._2 == 0) offset._3 else 0
-        scrapeHostel(urlIndex._1, (offset._1, offset._2 + urlIndex._2, reviewOffset), cityInfo)
-      }
+    if(hostelUrls.size > 0) {
+      val currentFirstId = getHostelWorldId(hostelUrls(0))
       
-      val firstHostelWorldId = if(firstId != -1) firstId else currentFirstId
-      scrapeCityUntil(cityInfo, firstHostelWorldId, (offset._1, page * AppConfig.JSoup.hostelsOffset, 0))
+      if(currentFirstId != firstId) {
+        val urlsZip = hostelUrls.drop(offset._2 % AppConfig.JSoup.hostelsOffset).zipWithIndex
+        for(urlIndex <- urlsZip) {
+          val reviewOffset = if(urlIndex._2 == 0) offset._3 else 0
+          scrapeHostel(urlIndex._1, (offset._1, offset._2 + urlIndex._2, reviewOffset), cityInfo)
+        }
+        
+        val firstHostelWorldId = if(firstId != -1) firstId else currentFirstId
+        scrapeCityUntil(cityInfo, firstHostelWorldId, (offset._1, page * AppConfig.JSoup.hostelsOffset, 0))
+      }
     }
   }
   
