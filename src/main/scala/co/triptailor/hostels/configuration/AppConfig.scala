@@ -14,6 +14,8 @@ object AppConfig {
   
   object JSoup {
     lazy val citiesUrl = "http://www.hostelworld.com/hostels"
+    lazy val hostelsOffset = 40
+    lazy val reviewsOffset = 20
   }
   
   object Data {

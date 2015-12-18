@@ -8,6 +8,8 @@ import scala.collection.JavaConverters._
 import java.io.FileWriter
 import java.io.BufferedWriter
 import java.io.File
+import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 
 /**
@@ -32,36 +34,52 @@ object HostelsScraper extends Scraper {
       
       val hostelOffset = if(lineIndex._2 == 0) offset._2 else 0
       val reviewOffset = if(lineIndex._2 == 0) offset._3 else 0
-      scrapeCityUntil(cityInfo, -1, (offset._1 + lineIndex._2, hostelOffset, reviewOffset))
+      try {
+        scrapeCityUntil(cityInfo, -1, (offset._1 + lineIndex._2, hostelOffset, reviewOffset))
+        saveLast((offset._1 + lineIndex._2 + 1), 0, 0)
+      } catch {
+        case ex: java.net.SocketTimeoutException => {
+          System.err.println(ex.getStackTrace)
+          Thread.sleep(10000)
+          scrape()
+        }
+      }
     }
   }
   
   def scrapeCityUntil(cityInfo: (String, String, String), firstId: Int, offset: (Int, Int, Int)): Unit = {
-    val url = cityInfo._3 + "?page=" + offset._2
+    val page = offset._2 / AppConfig.JSoup.hostelsOffset + 1
+    val url = cityInfo._3 + "?page=" + page
     println("Scraping " + url)
     val doc = getDocument(url)
+    
     val hostelBoxes = doc.select(".fabdetails").asScala
     val hostelUrls = hostelBoxes.map(_.select("a").get(0).attr("href").split("\\?")(0))
     
     val currentFirstId = getHostelWorldId(hostelUrls(0))
     
     if(currentFirstId != firstId) {
-      val urlsZip = hostelUrls.drop(offset._2).zipWithIndex
+      val urlsZip = hostelUrls.drop(offset._2 % AppConfig.JSoup.hostelsOffset).zipWithIndex
       for(urlIndex <- urlsZip) {
         val reviewOffset = if(urlIndex._2 == 0) offset._3 else 0
         scrapeHostel(urlIndex._1, (offset._1, offset._2 + urlIndex._2, reviewOffset), cityInfo)
       }
       
       val firstHostelWorldId = if(firstId != -1) firstId else currentFirstId
-      scrapeCityUntil(cityInfo, firstHostelWorldId, (offset._1, offset._2 + 1, 0))
+      scrapeCityUntil(cityInfo, firstHostelWorldId, (offset._1, page * AppConfig.JSoup.hostelsOffset, 0))
     }
   }
   
   def scrapeHostel(url: String, offset: (Int, Int, Int), cityInfo: (String, String, String)) = {
     val path = createDirectoriesIfNotExist(cityInfo._1, cityInfo._2)
       
-    saveHostelInformation(url, path)
-    scrapeReviewsUntil(url + "/reviews?reviewsLanguage=all&period=all", offset, path)
+    val hostelPath = saveHostelInformation(url, path)
+    
+    val reviewsWriter = new BufferedWriter(new FileWriter(hostelPath + "/reviews.txt", true))
+    scrapeReviewsUntil(url + "/reviews/{offset}?period=all", offset, reviewsWriter)
+    reviewsWriter.close
+    
+    saveLast(offset._1, offset._2 + 1, 0)
   }
   
   def saveHostelInformation(url: String, path: String) = {
@@ -70,11 +88,11 @@ object HostelsScraper extends Scraper {
     
     val name = doc.select(".main").get(0).select("h1").get(0).text
     
-    val hostelDir = new File(AppConfig.Data.data + name.replaceAll(" ", "_"))
+    val hostelDir = new File(path + "/" + name.replaceAll(" ", "_"))
     if(!hostelDir.exists())
       hostelDir.mkdir
     
-    val writer = new BufferedWriter(new FileWriter(path + "/" + name))
+    val writer = new BufferedWriter(new FileWriter(hostelDir.getAbsolutePath + "/info.txt"))
     
     val hostelWorldId = getHostelWorldId(url)
     writer.write(hostelWorldId + "\n")
@@ -104,15 +122,66 @@ object HostelsScraper extends Scraper {
     writer.write(cancellation)
     
     writer.close
+    
+    saveImagesUrls(doc, hostelDir.getAbsolutePath)
+    
+    hostelDir.getAbsolutePath
   }
   
-  def scrapeReviewsUntil(url: String, offset: (Int, Int, Int), path: String): Unit = {
+  def scrapeReviewsUntil(reviewsUrl: String, offset: (Int, Int, Int), writer: BufferedWriter): Unit = {
+    val page = offset._3 / AppConfig.JSoup.reviewsOffset + 1
+    val url = reviewsUrl.replace("{offset}", page.toString)
+    println("Scraping " +  url)
+    val doc = getDocument(url)
     
+    val reviews = doc.select(".reviewBox").asScala.drop(offset._3 % AppConfig.JSoup.reviewsOffset)
+    val reviewsPairsZip = reviews.map(makeReviewPairs).zipWithIndex
+    
+    if(reviewsPairsZip.size > 0) {
+      for(pairIndex <- reviewsPairsZip) {
+        writer.write(pairIndex._1._2 + "\n" + pairIndex._1._1 + "\n")
+        writer.flush
+        saveLast(offset._1, offset._2, pairIndex._2 + offset._3 + 1)
+      }
+      
+      scrapeReviewsUntil(reviewsUrl, (offset._1, offset._2, page * AppConfig.JSoup.reviewsOffset), writer)
+    }
+  }
+  
+  def saveImagesUrls(doc: Document, path: String) = {
+    val writer = new BufferedWriter(new FileWriter(path + "/images.txt"))
+    val imagesWrapper = doc.getElementById("gallery-imagelist")
+    if(imagesWrapper != null) {
+      val imagesUrls = imagesWrapper.select("a").asScala.map(_.attr("href"))
+      imagesUrls.foreach(imageUrl => writer.write(imageUrl + "\n"))
+    }
+    writer.close
   }
   
   def getHostelWorldId(url: String) = {
     val uris = url.split("/")
     uris(uris.size - 1).toInt
+  }
+  
+  def makeReviewPairs(review: Element) = {
+    (review.child(0).text, review.child(1).select("li").asScala.filter(element => {
+      val possibleAnchors = element.select("a")
+      possibleAnchors.size == 0 || !possibleAnchors.get(0).attr("class").equals("travelertype")
+    }).map(_.text).toSeq match {
+      case Seq(date, user, country, sexAge, reviews) => date + "," + user + "," + country + "," +
+        sexAge.replace(" ", "") + "," + reviews.replaceAll("[\\((?: reviews\\))]", "")
+      case Seq(date, user, country, reviews) => date + "," + user + "," + country + ",,," + reviews
+      case Seq(date, user, country) => date + "," + user + "," + country + ",,,"
+      case Seq(date, user) => date + "," + user + ",,,,"
+      case Seq(date) => date + ",,,,,"
+      case Seq() => ",,,,,"
+    })
+  }
+  
+  def saveLast(cityOffset: Int, hostelOffset: Int, reviewOffset: Int) = {
+    val lastWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastHostel))
+    lastWriter.write(cityOffset + "," + hostelOffset + "," + reviewOffset)
+    lastWriter.close
   }
   
   def createDirectoriesIfNotExist(country: String, city: String) = {
