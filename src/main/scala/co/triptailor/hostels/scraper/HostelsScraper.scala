@@ -88,7 +88,7 @@ object HostelsScraper extends Scraper {
     
     val name = doc.select(".main").get(0).select("h1").get(0).text
     
-    val hostelDir = new File(path + "/" + name.replaceAll(" ", "_"))
+    val hostelDir = new File(path + "/" + name.replaceAll("[/ ]", "_"))
     if(!hostelDir.exists())
       hostelDir.mkdir
     
