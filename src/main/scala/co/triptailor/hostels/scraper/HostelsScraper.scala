@@ -187,10 +187,10 @@ object HostelsScraper extends Scraper {
   }
   
   def createDirectoriesIfNotExist(country: String, city: String) = {
-    val countryDir = new File(AppConfig.Data.data + country.replaceAll(" ", "_"))
+    val countryDir = new File(AppConfig.Data.data + country.replaceAll("[/ ]", "_"))
     if(!countryDir.exists())
       countryDir.mkdir
-    val cityDir = new File(countryDir.getAbsolutePath + "/" + city.replaceAll(" ", "_"))
+    val cityDir = new File(countryDir.getAbsolutePath + "/" + city.replaceAll("[/ ]", "_"))
     if(!cityDir.exists())
       cityDir.mkdir
       
