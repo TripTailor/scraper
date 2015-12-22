@@ -39,7 +39,7 @@ object HostelsScraper extends Scraper {
         saveLast((offset._1 + lineIndex._2 + 1), 0, 0)
       } catch {
         case ex: java.net.SocketTimeoutException => {
-          System.err.println(ex.getStackTrace)
+          ex.printStackTrace();
           Thread.sleep(10000)
           scrape()
         }
