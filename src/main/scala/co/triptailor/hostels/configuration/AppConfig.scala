@@ -24,4 +24,9 @@ object AppConfig {
     lazy val data = "data/"
     lazy val lastHostel = "data/last.txt"
   }
+  
+  object General {
+    lazy val downloadImages = true
+    lazy val scrapeReviews = false
+  }
 }

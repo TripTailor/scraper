@@ -10,6 +10,8 @@ import java.io.BufferedWriter
 import java.io.File
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.net.URL
+import sys.process._
 
 
 /**
@@ -77,9 +79,11 @@ object HostelsScraper extends Scraper {
       
     val hostelPath = saveHostelInformation(url, path)
     
-    val reviewsWriter = new BufferedWriter(new FileWriter(hostelPath + "/reviews.txt", true))
-    scrapeReviewsUntil(url + "/reviews/{offset}?period=all", offset, reviewsWriter)
-    reviewsWriter.close
+    if(AppConfig.General.scrapeReviews) {
+      val reviewsWriter = new BufferedWriter(new FileWriter(hostelPath + "/reviews.txt", true))
+      scrapeReviewsUntil(url + "/reviews/{offset}?period=all", offset, reviewsWriter)
+      reviewsWriter.close
+    }
     
     saveLast(offset._1, offset._2 + 1, 0)
   }
@@ -100,8 +104,12 @@ object HostelsScraper extends Scraper {
     writer.write(hostelWorldId + "\n")
     
     writer.write(name + "\n")
+    writer.write(url + "\n")
     
-    val description = "<p>" + doc.select(".microdetailstext.prop-text.bigtext").html
+    val address = doc.select(".address").text
+    writer.write(address + "\n")
+    
+    val description = "<p>" + doc.select(".microdetailstext.prop-text").html
       .replaceAll("[\r\n]", "").replaceAll(" <br> <br> ", "</p><p>") + "</p>"
     writer.write(description + "\n")
     
@@ -151,13 +159,28 @@ object HostelsScraper extends Scraper {
   }
   
   def saveImagesUrls(doc: Document, path: String) = {
+    if(AppConfig.General.downloadImages)
+      print("Saving images ")
     val writer = new BufferedWriter(new FileWriter(path + "/images.txt"))
     val imagesWrapper = doc.getElementById("gallery-imagelist")
     if(imagesWrapper != null) {
       val imagesUrls = imagesWrapper.select("a").asScala.map(_.attr("href"))
-      imagesUrls.foreach(imageUrl => writer.write(imageUrl + "\n"))
+      imagesUrls.foreach(imageUrl => {
+        writer.write(imageUrl + "\n")
+        if(AppConfig.General.downloadImages) {
+          val imagesDir = new File(path + "/images")
+          if(!imagesDir.exists())
+            imagesDir.mkdir
+          val uris = imageUrl.split("/")
+          val name = uris(uris.length - 1)
+          print(".")
+          new URL(imageUrl) #> new File(imagesDir.getAbsolutePath + "/" + name) !!
+        }
+      })
     }
     writer.close
+    if(AppConfig.General.downloadImages)
+      println
   }
   
   def getHostelWorldId(url: String) = {
