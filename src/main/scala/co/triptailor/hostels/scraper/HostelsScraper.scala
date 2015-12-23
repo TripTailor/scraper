@@ -177,7 +177,7 @@ object HostelsScraper extends Scraper {
           try {
             new URL(imageUrl) #> new File(imagesDir.getAbsolutePath + "/" + name) !!
           } catch {
-            case e: java.io.FileNotFoundException =>
+            case e: Exception =>
           }
         }
       })
