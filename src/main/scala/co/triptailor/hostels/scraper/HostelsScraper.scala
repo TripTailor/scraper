@@ -174,7 +174,11 @@ object HostelsScraper extends Scraper {
           val uris = imageUrl.split("/")
           val name = uris(uris.length - 1)
           print(".")
-          new URL(imageUrl) #> new File(imagesDir.getAbsolutePath + "/" + name) !!
+          try {
+            new URL(imageUrl) #> new File(imagesDir.getAbsolutePath + "/" + name) !!
+          } catch {
+            case e: java.io.FileNotFoundException =>
+          }
         }
       })
     }
