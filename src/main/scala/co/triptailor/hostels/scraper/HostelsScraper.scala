@@ -109,6 +109,10 @@ object HostelsScraper extends Scraper {
     val address = doc.select(".address").text
     writer.write(address + "\n")
     
+    val latitude = doc.select("span[itemprop=\"latitude\"]").text
+    val longitude = doc.select("span[itemprop=\"longitude\"]").text
+    writer.write(latitude + "," + longitude + "\n")
+    
     val description = "<p>" + doc.select(".microdetailstext.prop-text").html
       .replaceAll("[\r\n]", "").replaceAll(" <br> <br> ", "</p><p>") + "</p>"
     writer.write(description + "\n")

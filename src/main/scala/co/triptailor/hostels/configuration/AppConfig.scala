@@ -26,7 +26,7 @@ object AppConfig {
   }
   
   object General {
-    lazy val downloadImages = true
+    lazy val downloadImages = false
     lazy val scrapeReviews = false
   }
 }
