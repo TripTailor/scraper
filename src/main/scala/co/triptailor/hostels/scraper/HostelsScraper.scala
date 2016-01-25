@@ -37,7 +37,7 @@ object HostelsScraper extends Scraper {
       val hostelOffset = if(lineIndex._2 == 0) offset._2 else 0
       val reviewOffset = if(lineIndex._2 == 0) offset._3 else 0
       try {
-        scrapeCityUntil(cityInfo, if(hostelOffset == 0) -1 else getFirstHostelWorldId(cityInfo._3),
+        scrapeCityUntil(cityInfo, if(hostelOffset < AppConfig.JSoup.hostelsOffset) -1 else getFirstHostelWorldId(cityInfo._3),
             (offset._1 + lineIndex._2, hostelOffset, reviewOffset))
         saveLast((offset._1 + lineIndex._2 + 1), 0, 0)
       } catch {
