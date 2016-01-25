@@ -37,11 +37,12 @@ object HostelsScraper extends Scraper {
       val hostelOffset = if(lineIndex._2 == 0) offset._2 else 0
       val reviewOffset = if(lineIndex._2 == 0) offset._3 else 0
       try {
-        scrapeCityUntil(cityInfo, -1, (offset._1 + lineIndex._2, hostelOffset, reviewOffset))
+        scrapeCityUntil(cityInfo, if(hostelOffset == 0) -1 else getFirstHostelWorldId(cityInfo._3),
+            (offset._1 + lineIndex._2, hostelOffset, reviewOffset))
         saveLast((offset._1 + lineIndex._2 + 1), 0, 0)
       } catch {
         case ex: java.net.SocketTimeoutException => {
-          ex.printStackTrace();
+          System.err.println("Read timed out")
           Thread.sleep(AppConfig.General.sleepTime)
           scrape()
         }
@@ -198,6 +199,15 @@ object HostelsScraper extends Scraper {
   def getHostelWorldId(url: String) = {
     val uris = url.split("/")
     uris(uris.size - 1).toInt
+  }
+  
+  def getFirstHostelWorldId(url: String) = {
+    println("Scraping " + url)
+    val doc = getDocument(url)
+    
+    val hostelBoxes = doc.select(".fabdetails").asScala
+    val hostelUrls = hostelBoxes.map(_.select("a").get(0).attr("href").split("\\?")(0))
+    getHostelWorldId(hostelUrls(0))
   }
   
   def makeReviewPairs(review: Element) = {
