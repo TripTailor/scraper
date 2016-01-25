@@ -42,7 +42,7 @@ object HostelsScraper extends Scraper {
       } catch {
         case ex: java.net.SocketTimeoutException => {
           ex.printStackTrace();
-          Thread.sleep(10000)
+          Thread.sleep(AppConfig.General.sleepTime)
           scrape()
         }
       }
@@ -153,8 +153,12 @@ object HostelsScraper extends Scraper {
     
     if(reviewsPairsZip.size > 0) {
       for(pairIndex <- reviewsPairsZip) {
-        writer.write(pairIndex._1._2 + "\n" + pairIndex._1._1 + "\n")
-        writer.flush
+        val date = pairIndex._1._2.split(",")(0).split(" ")
+        val year = if(date.size > 2) date(2).toInt else 0
+        if(year <= 2015) {
+          writer.write(pairIndex._1._2 + "\n" + pairIndex._1._1 + "\n")
+          writer.flush
+        }
         saveLast(offset._1, offset._2, pairIndex._2 + offset._3 + 1)
       }
       
