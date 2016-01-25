@@ -24,34 +24,35 @@ object CitiesScraper extends Scraper {
   }
   
   def scrape(url: String): Unit = {
-    val offset = Source.fromFile(AppConfig.Data.lastHostel).getLines.next.split(",") match {
+    val offset = Source.fromFile(AppConfig.Data.lastCity).getLines.next.split(",") match {
       case Array(continent, country, state, city) =>
         LocationOffset(continent.toInt, country.toInt, state.toInt, city.toInt)
     }
     
+    val writer = new BufferedWriter(new FileWriter(AppConfig.Data.citiesFile, true))
     try {
-      scrapeCities(AppConfig.JSoup.citiesUrl, offset)
+      scrapeCities(AppConfig.JSoup.citiesUrl, offset, writer)
     } catch {
       case ex: java.net.SocketTimeoutException => {
-        System.err.println(ex.getStackTrace)
+        System.err.println("Read timed out")
+        writer.close
         Thread.sleep(AppConfig.General.sleepTime)
         scrape(url)
       }
     }
   }
   
-  def scrapeCities(url: String, offset: LocationOffset) = {
+  def scrapeCities(url: String, offset: LocationOffset, writer: BufferedWriter) = {
     println("Scraping " + url)
     val doc = getDocument(url)
     
     val countriesContainer = doc.select(".toprated.rounded").get(0)
-    val continentsWithIndex = countriesContainer.children().asScala.drop(offset.continent).sliding(2, 2).map{child =>
-      (child(0).text, child(1).select("a").asScala.toSeq)
-    }.toSeq.zipWithIndex match {
-      case Seq(((continent, countries), index)) => Seq(ContinentWithIndex(continent, countries, index))
-    }
+    val continentsWithIndex = countriesContainer.children().asScala.sliding(2, 2).map{child =>
+      (child(0).child(1).text, child(1).select("a").asScala.toSeq)
+    }.drop(offset.continent).zipWithIndex.map(_ match {
+      case ((continent, countries), index) => ContinentWithIndex(continent, countries, index)
+    })
     
-    val writer = new BufferedWriter(new FileWriter(AppConfig.Data.citiesFile, true))
     for(continentWithIndex <- continentsWithIndex) {
       val countryOffset = if(continentWithIndex.index == 0) offset.country else 0
       val stateOffset = if(continentWithIndex.index == 0) offset.state else 0
@@ -62,13 +63,12 @@ object CitiesScraper extends Scraper {
       
       saveLast(LocationOffset(offset.continent + continentWithIndex.index + 1, 0, 0, 0))
     }
-    writer.close
   }
   
   def scrapeContinent(continent: String, countryElements: Seq[Element], writer: BufferedWriter, offset: LocationOffset) = {
-    val countriesWithIndex = countryElements.drop(offset.country).zipWithIndex match {
-      case Seq((countryElement, index)) => Seq(CountryWithIndex(countryElement, index))
-    }
+    val countriesWithIndex = countryElements.drop(offset.country).zipWithIndex.map(_ match {
+      case (countryElement, index) => CountryWithIndex(countryElement, index)
+    })
     
     for(countryWithIndex <- countriesWithIndex) {
       val countryUrl = countryWithIndex.countryElement.attr("href")
@@ -94,9 +94,9 @@ object CitiesScraper extends Scraper {
       saveLast(LocationOffset(offset.continent, offset.country, 0, 0))
     }
     else {
-      val statesWithIndex = doc.getElementById("states").select("a").asScala.drop(offset.state).zipWithIndex match {
-        case Seq((stateElement, index)) => Seq(StateWithIndex(stateElement, index))
-      }
+      val statesWithIndex = doc.getElementById("states").select("a").asScala.drop(offset.state).zipWithIndex.map(_ match {
+        case (stateElement, index) => StateWithIndex(stateElement, index)
+      })
       
       for(stateWithIndex <- statesWithIndex) {
         val state = stateWithIndex.stateElement.text
@@ -120,9 +120,9 @@ object CitiesScraper extends Scraper {
   
   def saveCities(cities: Seq[Element], state: String, country: String, continent: String, writer: BufferedWriter,
       offset: LocationOffset) = {
-    val citiesWithIndex = cities.drop(offset.city).zipWithIndex match {
-      case Seq((cityElement, index)) => Seq(CityWithIndex(cityElement, index))
-    }
+    val citiesWithIndex = cities.drop(offset.city).zipWithIndex.map(_ match {
+      case (cityElement, index) => CityWithIndex(cityElement, index)
+    })
     
     for(cityWithIndex <- citiesWithIndex) {
       val cityUrl = cityWithIndex.cityElement.attr("href")
