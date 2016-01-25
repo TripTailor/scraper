@@ -23,10 +23,12 @@ object AppConfig {
     lazy val lastCity = "last_city.txt"
     lazy val data = "data/"
     lazy val lastHostel = "data/last.txt"
+    lazy val logFile = "data/log.txt"
   }
   
   object General {
     lazy val downloadImages = false
     lazy val scrapeReviews = false
+    lazy val sleepTime = 5000
   }
 }

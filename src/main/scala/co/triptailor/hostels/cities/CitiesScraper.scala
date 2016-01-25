@@ -8,6 +8,12 @@ import java.io.BufferedReader
 import java.io.FileReader
 import co.triptailor.hostels.configuration.AppConfig
 import co.triptailor.hostels.scraper.Scraper
+import scala.io.Source
+import co.triptailor.hostels.configuration.LocationOffset
+import co.triptailor.hostels.configuration.CountryWithIndex
+import co.triptailor.hostels.configuration.StateWithIndex
+import co.triptailor.hostels.configuration.ContinentWithIndex
+import co.triptailor.hostels.configuration.CityWithIndex
 
 /**
  * @author lgaleana
@@ -18,94 +24,90 @@ object CitiesScraper extends Scraper {
   }
   
   def scrape(url: String): Unit = {
-    val reader = new BufferedReader(new FileReader(AppConfig.Data.lastCity))
-    val offsetContainer = reader.readLine().split(",").map(_.toInt)
-    reader.close
-    val offset = (offsetContainer(0), offsetContainer(1), offsetContainer(2), offsetContainer(3))
+    val offset = Source.fromFile(AppConfig.Data.lastHostel).getLines.next.split(",") match {
+      case Array(continent, country, state, city) =>
+        LocationOffset(continent.toInt, country.toInt, state.toInt, city.toInt)
+    }
     
     try {
       scrapeCities(AppConfig.JSoup.citiesUrl, offset)
     } catch {
       case ex: java.net.SocketTimeoutException => {
         System.err.println(ex.getStackTrace)
-        Thread.sleep(10000)
+        Thread.sleep(AppConfig.General.sleepTime)
         scrape(url)
       }
     }
   }
   
-  def scrapeCities(url: String, offset: (Int, Int, Int, Int)) = {
+  def scrapeCities(url: String, offset: LocationOffset) = {
     println("Scraping " + url)
     val doc = getDocument(url)
+    
     val countriesContainer = doc.select(".toprated.rounded").get(0)
-    val continentCountriesPairs = countriesContainer.children().asScala.sliding(2, 2).map(x => (x(0), x(1))).toSeq
+    val continentsWithIndex = countriesContainer.children().asScala.drop(offset.continent).sliding(2, 2).map{child =>
+      (child(0).text, child(1).select("a").asScala.toSeq)
+    }.toSeq.zipWithIndex match {
+      case Seq(((continent, countries), index)) => Seq(ContinentWithIndex(continent, countries, index))
+    }
     
     val writer = new BufferedWriter(new FileWriter(AppConfig.Data.citiesFile, true))
-    for {
-      i <- 0 to continentCountriesPairs.size - 1
-      if(i >= offset._1)
-      continentCountries = continentCountriesPairs.drop(i).head
-      continent = continentCountries._1.child(1).text
-      countryElements = continentCountries._2.select("a").asScala
-      countryOffset = if(offset._1 == i) offset._2 else 0
-      stateOffset = if(offset._1 == i) offset._3 else 0
-      cityOffset = if(offset._1 == i) offset._4 else 0
-    } {
-      scrapeContinent(continent, countryElements, writer, (i, countryOffset, stateOffset, cityOffset))
+    for(continentWithIndex <- continentsWithIndex) {
+      val countryOffset = if(continentWithIndex.index == 0) offset.country else 0
+      val stateOffset = if(continentWithIndex.index == 0) offset.state else 0
+      val cityOffset = if(continentWithIndex.index == 0) offset.city else 0
       
-      val offsetWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
-      offsetWriter.write((i + 1) + ",0,0,0")
-      offsetWriter.close
+      scrapeContinent(continentWithIndex.continent, continentWithIndex.countryElements, writer,
+          LocationOffset(offset.continent + continentWithIndex.index, countryOffset, stateOffset, cityOffset))
+      
+      saveLast(LocationOffset(offset.continent + continentWithIndex.index + 1, 0, 0, 0))
     }
     writer.close
   }
   
-  def scrapeContinent(continent: String, countryElements: Seq[Element], writer: BufferedWriter,
-      offset: (Int, Int, Int, Int)) = {
-    for {
-      i <- 0 to countryElements.size - 1
-      if(i >= offset._2)
-      countryElement = countryElements.drop(i).head
-      countryUrl = countryElement.attr("href")
-      country = countryElement.text
-      stateOffset = if(offset._2 == i) offset._2 else 0
-      cityOffset = if(offset._2 == i) offset._3 else 0
-    } {
-      scrapeCountry(countryUrl, country, continent, writer, (offset._1, i, stateOffset, cityOffset))
+  def scrapeContinent(continent: String, countryElements: Seq[Element], writer: BufferedWriter, offset: LocationOffset) = {
+    val countriesWithIndex = countryElements.drop(offset.country).zipWithIndex match {
+      case Seq((countryElement, index)) => Seq(CountryWithIndex(countryElement, index))
+    }
+    
+    for(countryWithIndex <- countriesWithIndex) {
+      val countryUrl = countryWithIndex.countryElement.attr("href")
+      val country = countryWithIndex.countryElement.text
       
-      val offsetWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
-      offsetWriter.write(offset._1 + "," + (i + 1) + ",0,0")
-      offsetWriter.close
+      val stateOffset = if(countryWithIndex.index == 0) offset.state else 0
+      val cityOffset = if(countryWithIndex.index == 0) offset.city else 0
+      
+      scrapeCountry(countryUrl, country, continent, writer,
+          LocationOffset(offset.continent, offset.country + countryWithIndex.index, stateOffset, cityOffset))
+      
+      saveLast(LocationOffset(offset.continent, offset.country + countryWithIndex.index + 1, 0, 0))
     }
   }
   
-  def scrapeCountry(url: String, country: String, continent: String, writer: BufferedWriter,
-      offset: (Int, Int, Int, Int)) = {
+  def scrapeCountry(url: String, country: String, continent: String, writer: BufferedWriter, offset: LocationOffset) = {
     println("Scraping " + url)
     val doc = getDocument(url)
     val cities = doc.getElementById("bottomlist").select("a").asScala
     if(!cities.isEmpty) {
-      saveCities(cities, "", country, continent, writer, offset)
+      saveCities(cities, "", country, continent, writer, LocationOffset(offset.continent, offset.country, 0, offset.city))
       
-      val offsetWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
-      offsetWriter.write(offset._1 + "," + offset._2 + ",0,0")
-      offsetWriter.close
+      saveLast(LocationOffset(offset.continent, offset.country, 0, 0))
     }
     else {
-      val states = doc.getElementById("states").select("a").asScala
-      for {
-        i <- 0 to states.size - 1
-        if(i >= offset._3)
-        stateElement = states.drop(i).head
-        state = stateElement.text
-        cities = scrapeStateForCities(stateElement.attr("href"))
-        cityOffset = if(offset._3 == i) offset._3 else 0
-      } {
-        saveCities(cities, state, country, continent, writer, (offset._1, offset._2, i, cityOffset))
+      val statesWithIndex = doc.getElementById("states").select("a").asScala.drop(offset.state).zipWithIndex match {
+        case Seq((stateElement, index)) => Seq(StateWithIndex(stateElement, index))
+      }
+      
+      for(stateWithIndex <- statesWithIndex) {
+        val state = stateWithIndex.stateElement.text
+        val cities = scrapeStateForCities(stateWithIndex.stateElement.attr("href"))
         
-        val offsetWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
-        offsetWriter.write(offset._1 + "," + offset._2 + "," +  (i + 1) + ",0")
-        offsetWriter.close
+        val cityOffset = if(stateWithIndex.index == 0) offset.city else 0
+        
+        saveCities(cities, state, country, continent, writer,
+            LocationOffset(offset.continent, offset.country, offset.state + stateWithIndex.index, cityOffset))
+        
+        saveLast(LocationOffset(offset.continent, offset.country, offset.state + stateWithIndex.index + 1, 0))
       }
     }
   }
@@ -117,20 +119,25 @@ object CitiesScraper extends Scraper {
   }
   
   def saveCities(cities: Seq[Element], state: String, country: String, continent: String, writer: BufferedWriter,
-      offset: (Int, Int, Int, Int)) = {
-    for {
-      i <- 0 to cities.size - 1
-      if(offset._4 >= i)
-      cityElement <- cities
-      cityUrl = cityElement.attr("href")
-      city = cityElement.text
-    } {
+      offset: LocationOffset) = {
+    val citiesWithIndex = cities.drop(offset.city).zipWithIndex match {
+      case Seq((cityElement, index)) => Seq(CityWithIndex(cityElement, index))
+    }
+    
+    for(cityWithIndex <- citiesWithIndex) {
+      val cityUrl = cityWithIndex.cityElement.attr("href")
+      val city = cityWithIndex.cityElement.text
+      
       writer.write(city + "," + state + "," + country + "," + continent + "," + cityUrl + "\n")
       writer.flush
       
-      val offsetWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
-      offsetWriter.write(offset._1 + "," +  offset._2 + "," + offset._3 + "," + (i + 1))
-      offsetWriter.close
+      saveLast(LocationOffset(offset.continent, offset.country, offset.state, offset.city + cityWithIndex.index + 1))
     }
+  }
+  
+  def saveLast(offset: LocationOffset) = {
+    val lastWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastCity))
+    lastWriter.write(offset.continent + "," + offset.country + "," + offset.state + "," + offset.city)
+    lastWriter.close
   }
 }

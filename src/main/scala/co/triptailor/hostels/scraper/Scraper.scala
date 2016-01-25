@@ -23,8 +23,4 @@ trait Scraper {
       case e: HttpStatusException => new Document("/")
     }
   }
-  
-  def getTripAdvisorId(anchor: Element, split: String) = {
-    anchor.attr("href").split(split)(1).split("-")(0).toInt
-  }
 }
