@@ -12,6 +12,12 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URL
 import sys.process._
+import co.triptailor.hostels.configuration.HostelOffset
+import co.triptailor.hostels.configuration.CityLineWithIndex
+import co.triptailor.hostels.configuration.LocationInfo
+import co.triptailor.hostels.configuration.HostelUrlWithIndex
+import co.triptailor.hostels.configuration.Review
+import co.triptailor.hostels.configuration.ReviewWithIndex
 
 
 /**
@@ -25,21 +31,23 @@ object HostelsScraper extends Scraper {
 
   def scrape(): Unit = {
     val offset = Source.fromFile(AppConfig.Data.lastHostel).getLines.next.split(",") match {
-      case Array(a, b, c) => (a.toInt, b.toInt, c.toInt)
+      case Array(a, b, c) => HostelOffset(a.toInt, b.toInt, c.toInt)
     }
     
-    val linesZip = Source.fromFile(AppConfig.Data.citiesFile).getLines.toSeq.drop(offset._1).zipWithIndex
-    for (lineIndex <- linesZip) {
-      val cityInfo = lineIndex._1.split(",") match {
-        case Array(city, state, country, continent, url) => (country, city, url)
+    val citiesWithIndex = Source.fromFile(AppConfig.Data.citiesFile).getLines.toSeq.drop(offset.city).zipWithIndex.map(_ match {
+      case (cityLine, index) => CityLineWithIndex(cityLine, index)
+    })
+    for (cityWithIndex <- citiesWithIndex) {
+      val cityInfo = cityWithIndex.cityLine.split(",") match {
+        case Array(city, state, country, continent, url) => LocationInfo(country, city, url)
       }
       
-      val hostelOffset = if(lineIndex._2 == 0) offset._2 else 0
-      val reviewOffset = if(lineIndex._2 == 0) offset._3 else 0
+      val hostelOffset = if(cityWithIndex.index == 0) offset.hostel else 0
+      val reviewOffset = if(cityWithIndex.index == 0) offset.review else 0
       try {
-        scrapeCityUntil(cityInfo, if(hostelOffset < AppConfig.JSoup.hostelsOffset) -1 else getFirstHostelWorldId(cityInfo._3),
-            (offset._1 + lineIndex._2, hostelOffset, reviewOffset))
-        saveLast((offset._1 + lineIndex._2 + 1), 0, 0)
+        scrapeCityUntil(cityInfo, if(hostelOffset < AppConfig.JSoup.hostelsOffset) -1 else getFirstHostelWorldId(cityInfo.url),
+            HostelOffset(offset.city + cityWithIndex.index, hostelOffset, reviewOffset))
+        saveLast(HostelOffset(offset.city + cityWithIndex.index + 1, 0, 0))
       } catch {
         case ex: java.net.SocketTimeoutException => {
           System.err.println("Read timed out")
@@ -50,9 +58,9 @@ object HostelsScraper extends Scraper {
     }
   }
   
-  def scrapeCityUntil(cityInfo: (String, String, String), firstId: Int, offset: (Int, Int, Int)): Unit = {
-    val page = offset._2 / AppConfig.JSoup.hostelsOffset + 1
-    val url = cityInfo._3 + "?page=" + page
+  def scrapeCityUntil(cityInfo: LocationInfo, firstId: Int, offset: HostelOffset): Unit = {
+    val page = offset.hostel / AppConfig.JSoup.hostelsOffset + 1
+    val url = cityInfo.url + "?page=" + page
     println("Scraping " + url)
     val doc = getDocument(url)
     
@@ -63,20 +71,23 @@ object HostelsScraper extends Scraper {
       val currentFirstId = getHostelWorldId(hostelUrls(0))
       
       if(currentFirstId != firstId) {
-        val urlsZip = hostelUrls.drop(offset._2 % AppConfig.JSoup.hostelsOffset).zipWithIndex
-        for(urlIndex <- urlsZip) {
-          val reviewOffset = if(urlIndex._2 == 0) offset._3 else 0
-          scrapeHostel(urlIndex._1, (offset._1, offset._2 + urlIndex._2, reviewOffset), cityInfo)
+        val hostelUrlsWithIndex = hostelUrls.drop(offset.hostel % AppConfig.JSoup.hostelsOffset).zipWithIndex.map(_ match {
+          case (hostelUrl, index) => HostelUrlWithIndex(hostelUrl, index)
+        })
+        for(hostelUrlWithIndex <- hostelUrlsWithIndex) {
+          val reviewOffset = if(hostelUrlWithIndex.index == 0) offset.review else 0
+          scrapeHostel(hostelUrlWithIndex.url, HostelOffset(offset.city, offset.hostel + hostelUrlWithIndex.index, reviewOffset),
+              cityInfo)
         }
         
         val firstHostelWorldId = if(firstId != -1) firstId else currentFirstId
-        scrapeCityUntil(cityInfo, firstHostelWorldId, (offset._1, page * AppConfig.JSoup.hostelsOffset, 0))
+        scrapeCityUntil(cityInfo, firstHostelWorldId, HostelOffset(offset.city, page * AppConfig.JSoup.hostelsOffset, 0))
       }
     }
   }
   
-  def scrapeHostel(url: String, offset: (Int, Int, Int), cityInfo: (String, String, String)) = {
-    val path = createDirectoriesIfNotExist(cityInfo._1, cityInfo._2)
+  def scrapeHostel(url: String, offset: HostelOffset, cityInfo: LocationInfo) = {
+    val path = createDirectoriesIfNotExist(cityInfo.country, cityInfo.city)
       
     val hostelPath = saveHostelInformation(url, path)
     
@@ -86,7 +97,7 @@ object HostelsScraper extends Scraper {
       reviewsWriter.close
     }
     
-    saveLast(offset._1, offset._2 + 1, 0)
+    saveLast(HostelOffset(offset.city, offset.hostel + 1, 0))
   }
   
   def saveHostelInformation(url: String, path: String) = {
@@ -143,27 +154,29 @@ object HostelsScraper extends Scraper {
     hostelDir.getAbsolutePath
   }
   
-  def scrapeReviewsUntil(reviewsUrl: String, offset: (Int, Int, Int), writer: BufferedWriter): Unit = {
-    val page = offset._3 / AppConfig.JSoup.reviewsOffset + 1
+  def scrapeReviewsUntil(reviewsUrl: String, offset: HostelOffset, writer: BufferedWriter): Unit = {
+    val page = offset.review / AppConfig.JSoup.reviewsOffset + 1
     val url = reviewsUrl.replace("{offset}", page.toString)
     println("Scraping " +  url)
     val doc = getDocument(url)
     
-    val reviews = doc.select(".reviewBox").asScala.drop(offset._3 % AppConfig.JSoup.reviewsOffset)
-    val reviewsPairsZip = reviews.map(makeReviewPairs).zipWithIndex
+    val reviews = doc.select(".reviewBox").asScala.drop(offset.review % AppConfig.JSoup.reviewsOffset)
+    val reviewsWithIndex= reviews.map(matchReview).zipWithIndex.map(_ match {
+      case (review, index) => ReviewWithIndex(review, index)
+    })
     
-    if(reviewsPairsZip.size > 0) {
-      for(pairIndex <- reviewsPairsZip) {
-        val date = pairIndex._1._2.split(",")(0).split(" ")
+    if(reviewsWithIndex.size > 0) {
+      for(reviewWithIndex <- reviewsWithIndex) {
+        val date = reviewWithIndex.review.meta.split(",")(0).split(" ")
         val year = if(date.size > 2) date(2).toInt else 0
         if(year <= 2015) {
-          writer.write(pairIndex._1._2 + "\n" + pairIndex._1._1 + "\n")
+          writer.write(reviewWithIndex.review.meta + "\n" + reviewWithIndex.review.text + "\n")
           writer.flush
         }
-        saveLast(offset._1, offset._2, pairIndex._2 + offset._3 + 1)
+        saveLast(HostelOffset(offset.city, offset.hostel, reviewWithIndex.index + offset.review + 1))
       }
       
-      scrapeReviewsUntil(reviewsUrl, (offset._1, offset._2, page * AppConfig.JSoup.reviewsOffset), writer)
+      scrapeReviewsUntil(reviewsUrl, HostelOffset(offset.city, offset.hostel, page * AppConfig.JSoup.reviewsOffset), writer)
     }
   }
   
@@ -210,8 +223,8 @@ object HostelsScraper extends Scraper {
     getHostelWorldId(hostelUrls(0))
   }
   
-  def makeReviewPairs(review: Element) = {
-    (review.child(0).text, review.child(1).select("li").asScala.filter(element => {
+  def matchReview(review: Element) = {
+    Review(review.child(0).text, review.child(1).select("li").asScala.filter(element => {
       val possibleAnchors = element.select("a")
       possibleAnchors.size == 0 || !possibleAnchors.get(0).attr("class").equals("travelertype")
     }).map(_.text).toSeq match {
@@ -225,9 +238,9 @@ object HostelsScraper extends Scraper {
     })
   }
   
-  def saveLast(cityOffset: Int, hostelOffset: Int, reviewOffset: Int) = {
+  def saveLast(offset: HostelOffset) = {
     val lastWriter = new BufferedWriter(new FileWriter(AppConfig.Data.lastHostel))
-    lastWriter.write(cityOffset + "," + hostelOffset + "," + reviewOffset)
+    lastWriter.write(offset.city + "," + offset.hostel + "," + offset.review)
     lastWriter.close
   }
   
