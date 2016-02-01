@@ -91,7 +91,7 @@ object HostelsScraper extends Scraper {
       
     val hostelPath = saveHostelInformation(url, path)
     
-    if(AppConfig.General.scrapeReviews) {
+    if(AppConfig.General.scrapeReviews && hostelPath != null) {
       val reviewsWriter = new BufferedWriter(new FileWriter(hostelPath + "/reviews.txt", true))
       scrapeReviewsUntil(url + "/reviews/{offset}?period=all", offset, reviewsWriter)
       reviewsWriter.close
@@ -100,9 +100,12 @@ object HostelsScraper extends Scraper {
     saveLast(HostelOffset(offset.city, offset.hostel + 1, 0))
   }
   
-  def saveHostelInformation(url: String, path: String) = {
+  def saveHostelInformation(url: String, path: String): String = {
     println("Scraping " + url)
     val doc = getDocument(url)
+    
+    if(doc.baseUri().equals("/"))
+      return null
     
     val name = doc.select(".main").get(0).select("h1").get(0).text
     
